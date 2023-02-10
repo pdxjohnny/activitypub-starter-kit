@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import type { Request } from "express";
 import fetch from "node-fetch";
+import ProxyAgent from "simple-proxy-agent";
 import { assert } from "superstruct";
 
 import { PRIVATE_KEY, FDQN } from "./env.js";
@@ -9,8 +10,13 @@ import { Actor } from "./types.js";
 
 /** Fetches and returns an actor at a URL. */
 async function fetchActor(url: string) {
+  const agent = (process.env.https_proxy ? new ProxyAgent(process.env.https_proxy, {
+      tunnel: true, // If true, will tunnel all HTTPS using CONNECT method
+      timeout: 5000, // Time in milli-seconds, to maximum wait for proxy connection to establish
+    }) : null);
   const res = await fetch(url, {
     headers: { accept: "application/activity+json" },
+    agent: agent,
   });
 
   if (res.status < 200 || 299 < res.status)
@@ -46,6 +52,10 @@ export async function send(sender: string, recipient: string, message: object) {
   const signature = crypto
     .sign("sha256", Buffer.from(data), key)
     .toString("base64");
+  const agent = (process.env.https_proxy ? new ProxyAgent(process.env.https_proxy, {
+      tunnel: true, // If true, will tunnel all HTTPS using CONNECT method
+      timeout: 5000, // Time in milli-seconds, to maximum wait for proxy connection to establish
+    }) : null);
 
   const res = await fetch(actor.inbox, {
     method: "POST",
@@ -57,6 +67,7 @@ export async function send(sender: string, recipient: string, message: object) {
       signature: `keyId="${sender}#main-key",headers="(request-target) host date digest",signature="${signature}"`,
       accept: "application/json",
     },
+    agent: agent,
     body,
   });
 
