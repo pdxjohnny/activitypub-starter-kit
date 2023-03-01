@@ -22,43 +22,50 @@ if (ADMIN_USERNAME && ADMIN_PASSWORD) {
 }
 
 admin.post("/create", async (req, res) => {
-  const actor: string = req.app.get("actor");
+  try {
+    const actor: string = req.app.get("actor");
 
-  const create = type({ object: omit(Object, ["id"]) });
+    const create = type({ object: omit(Object, ["id"]) });
 
-  const body = JSON.parse(req.body);
-  if (!is(body, create)) return res.sendStatus(400);
+    const body = JSON.parse(req.body);
+    if (!is(body, create)) return res.sendStatus(400);
 
-  const date = new Date();
+    const date = new Date();
 
-  const object = createPost({
-    attributedTo: actor,
-    published: date.toISOString(),
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [`${actor}/followers`],
-    ...body.object,
-  });
-
-  const activity = createPost({
-    "@context": "https://www.w3.org/ns/activitystreams",
-    type: "Create",
-    published: date.toISOString(),
-    actor,
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    cc: [`${actor}/followers`],
-    ...body,
-    object: { ...object.contents, id: `${actor}/posts/${object.id}` },
-  });
-
-  for (const follower of listFollowers()) {
-    send(actor, follower.actor, {
-      ...activity.contents,
-      id: `${actor}/posts/${activity.id}`,
-      cc: [follower.actor],
+    const object = createPost({
+      attributedTo: actor,
+      published: date.toISOString(),
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+      cc: [`${actor}/followers`],
+      ...body.object,
     });
-  }
 
-  return res.sendStatus(204);
+    const activity = createPost({
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Create",
+      published: date.toISOString(),
+      actor,
+      to: ["https://www.w3.org/ns/activitystreams#Public"],
+      cc: [`${actor}/followers`],
+      ...body,
+      object: { ...object.contents, id: `${actor}/posts/${object.id}` },
+    });
+
+    for (const follower of listFollowers()) {
+      send(actor, follower.actor, {
+        ...activity.contents,
+        id: `${actor}/posts/${activity.id}`,
+        cc: [follower.actor],
+      }).catch((err) => {
+        console.error(`Error while notifying ${actor} -> ${follower.actor}: ${err}`);
+      });
+    }
+
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error(err);
+    return res.sendStatus(500);
+  }
 });
 
 admin.post("/follow/:actor/:hostname/:port/:proto", async (req, res) => {
@@ -69,13 +76,19 @@ admin.post("/follow/:actor/:hostname/:port/:proto", async (req, res) => {
   })(req.params);
   const endpoint: string = (FDQN != null ? FDQN: `${HOSTNAME}:${PORT}`);
   const uri = `${PROTO}://${endpoint}/@${crypto.randomUUID()}`;
-  await send(actor, object, {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: uri,
-    type: "Follow",
-    actor,
-    object,
-  });
+  try {
+    await send(actor, object, {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: uri,
+      type: "Follow",
+      actor,
+      object,
+    });
+  } catch (err) {
+    console.error(err);
+    res.sendStatus(500);
+    return;
+  }
 
   createFollowing({ actor: object, uri });
   res.sendStatus(204);
@@ -88,18 +101,23 @@ admin.delete("/follow/:actor", async (req, res) => {
   const following = getFollowing(object);
   if (!following) return res.sendStatus(204);
 
-  await send(actor, object, {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: following.uri + "/undo",
-    type: "Undo",
-    actor: actor,
-    object: {
-      id: following.uri,
-      type: "Follow",
-      actor,
-      object,
-    },
-  });
+  try {
+    await send(actor, object, {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: following.uri + "/undo",
+      type: "Undo",
+      actor: actor,
+      object: {
+        id: following.uri,
+        type: "Follow",
+        actor,
+        object,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.sendStatus(500);
+  }
 
   deleteFollowing({ actor: object, uri: following.uri });
   return res.sendStatus(204);

@@ -65,13 +65,18 @@ activitypub.post("/:actor/inbox", async (req, res) => {
 
   switch (body.type) {
     case "Follow": {
-      await send(actor, body.actor, {
-        "@context": "https://www.w3.org/ns/activitystreams",
-        id: uri,
-        type: "Accept",
-        actor,
-        object: body,
-      });
+      try {
+        await send(actor, body.actor, {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          id: uri,
+          type: "Accept",
+          actor,
+          object: body,
+        });
+      } catch (err) {
+        console.error(err);
+        return res.sendStatus(401);
+      }
 
       createFollower({ actor: body.actor, uri: body.id });
       break;
